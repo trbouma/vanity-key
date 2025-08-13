@@ -250,9 +250,14 @@
                 try {
                     this.showStatus('Loading face detection models...', 'info');
                     
-                    // Load face-api.js models from CDN
-                    await faceapi.nets.tinyFaceDetector.loadFromUri('https://unpkg.com/face-api.js@0.22.2/weights/');
-                    await faceapi.nets.faceLandmark68Net.loadFromUri('https://unpkg.com/face-api.js@0.22.2/weights/');
+                    // Load face-api.js models locally to avoid CORS issues
+                    // Use relative path that works both locally and on GitHub Pages
+                    const modelPath = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+                        ? './models/' 
+                        : './models/';
+                    
+                    await faceapi.nets.tinyFaceDetector.loadFromUri(modelPath);
+                    await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
                     
                     this.modelsLoaded = true;
                     this.showStatus('Face detection models loaded successfully', 'success');
