@@ -39,8 +39,11 @@
         #videoElement {
             width: 100%;
             max-width: 480px;
+            height: auto;
             border-radius: 8px;
             background: #000;
+            display: block;
+            margin: 0 auto;
         }
         
         #overlay {
@@ -136,10 +139,31 @@
         
         .biometric-measurements {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr;
             gap: 10px;
             font-family: monospace;
-            font-size: 12px;
+            font-size: 14px;
+        }
+        
+        @media (min-width: 480px) {
+            .biometric-measurements {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .container {
+                padding: 15px;
+            }
+            
+            button {
+                width: 100%;
+                margin: 5px 0;
+            }
+            
+            .key-output {
+                font-size: 10px;
+            }
         }
         
         .measurement {
@@ -269,8 +293,10 @@
             
             async startCamera() {
                 try {
+                    // Use front camera on mobile
                     this.stream = await navigator.mediaDevices.getUserMedia({
                         video: { 
+                            facingMode: 'user',
                             width: { ideal: 640 },
                             height: { ideal: 480 }
                         }
@@ -376,70 +402,25 @@
             }
             
             extractStableMeasurements(landmarks) {
-                if (!landmarks || landmarks.length < 68) return null;
+                if (!landmarks || landmarks.length < 20) return null;
                 
-                // Extract key facial landmarks for deterministic measurements
-                // Using specific landmark indices from 68-point model
-                const leftEyeOuter = landmarks[36];
-                const leftEyeInner = landmarks[39];
-                const rightEyeInner = landmarks[42];
-                const rightEyeOuter = landmarks[45];
-                const noseTop = landmarks[27];
-                const noseTip = landmarks[30];
-                const noseBottom = landmarks[33];
-                const mouthLeft = landmarks[48];
-                const mouthRight = landmarks[54];
-                const mouthTop = landmarks[51];
-                const mouthBottom = landmarks[57];
-                const chinBottom = landmarks[8];
-                const leftCheek = landmarks[1];
-                const rightCheek = landmarks[15];
+                // Simple approach: just use a few key points
+                const leftEye = landmarks[36] || landmarks[0];
+                const rightEye = landmarks[45] || landmarks[1];
+                const nose = landmarks[30] || landmarks[2];
+                const mouthLeft = landmarks[48] || landmarks[3];
+                const mouthRight = landmarks[54] || landmarks[4];
                 
-                // Calculate inter-eye distance as primary reference (most stable)
-                const leftEyeCenter = {
-                    x: (leftEyeOuter.x + leftEyeInner.x) / 2,
-                    y: (leftEyeOuter.y + leftEyeInner.y) / 2
-                };
-                const rightEyeCenter = {
-                    x: (rightEyeInner.x + rightEyeOuter.x) / 2,
-                    y: (rightEyeInner.y + rightEyeOuter.y) / 2
-                };
-                
-                const eyeDistance = this.distance(leftEyeCenter, rightEyeCenter);
+                // Basic measurements - keep it simple!
+                const eyeDistance = this.distance(leftEye, rightEye);
                 if (eyeDistance <= 0) return null;
                 
-                // Calculate normalized ratios (deterministic facial geometry)
-                const measurements = {};
-                
-                // Core facial proportions (Golden Ratio approximations)
-                measurements.eyeSpacing = this.quantize(eyeDistance / this.distance(leftCheek, rightCheek), 100);
-                measurements.noseLength = this.quantize(this.distance(noseTop, noseTip) / eyeDistance, 100);
-                measurements.noseToMouth = this.quantize(this.distance(noseBottom, mouthTop) / eyeDistance, 100);
-                measurements.mouthWidth = this.quantize(this.distance(mouthLeft, mouthRight) / eyeDistance, 100);
-                measurements.mouthHeight = this.quantize(this.distance(mouthTop, mouthBottom) / eyeDistance, 100);
-                measurements.chinHeight = this.quantize(this.distance(mouthBottom, chinBottom) / eyeDistance, 100);
-                
-                // Facial symmetry measurements
-                const faceMidline = (leftEyeCenter.x + rightEyeCenter.x) / 2;
-                measurements.noseDeviation = this.quantize((noseTip.x - faceMidline) / eyeDistance, 100);
-                measurements.mouthAsymmetry = this.quantize(((mouthLeft.x - faceMidline) + (faceMidline - mouthRight.x)) / eyeDistance, 100);
-                
-                // Eye measurements
-                measurements.leftEyeWidth = this.quantize(this.distance(leftEyeOuter, leftEyeInner) / eyeDistance, 100);
-                measurements.rightEyeWidth = this.quantize(this.distance(rightEyeInner, rightEyeOuter) / eyeDistance, 100);
-                measurements.eyeAsymmetry = this.quantize(Math.abs(measurements.leftEyeWidth - measurements.rightEyeWidth), 100);
-                
-                // Face shape ratios
-                measurements.faceWidth = this.quantize(this.distance(leftCheek, rightCheek) / eyeDistance, 100);
-                measurements.faceHeight = this.quantize(this.distance(noseTop, chinBottom) / eyeDistance, 100);
-                measurements.faceRatio = this.quantize(measurements.faceHeight / measurements.faceWidth, 100);
-                
-                return measurements;
-            }
-            
-            quantize(value, precision) {
-                // Quantize to reduce noise and ensure determinism
-                return Math.round(value * precision) / precision;
+                // Just 3 simple ratios that are fairly stable
+                return {
+                    noseRatio: Math.round((this.distance(nose, leftEye) / eyeDistance) * 10) / 10,
+                    mouthWidth: Math.round((this.distance(mouthLeft, mouthRight) / eyeDistance) * 10) / 10,
+                    faceShape: Math.round((this.distance(nose, {x: (mouthLeft.x + mouthRight.x)/2, y: mouthLeft.y}) / eyeDistance) * 10) / 10
+                };
             }
             
             distance(p1, p2) {
@@ -463,29 +444,22 @@
             }
             
             calculateConsistency() {
-                if (this.measurementHistory.length < 5) return 0;
+                if (this.measurementHistory.length < 3) return 0;
                 
-                const recent = this.measurementHistory.slice(-10);
+                const recent = this.measurementHistory.slice(-5);
                 if (recent.length < 2) return 0;
                 
-                const keys = Object.keys(recent[0]);
-                let stableCount = 0;
+                // Simple check: are the last few measurements similar?
+                const lastMeasurement = recent[recent.length - 1];
+                const secondLast = recent[recent.length - 2];
                 
-                // Check how many measurements are stable (low variance)
-                for (const key of keys) {
-                    const values = recent.map(m => m[key]);
-                    const min = Math.min(...values);
-                    const max = Math.max(...values);
-                    const range = max - min;
-                    
-                    // Consider stable if range is less than 0.02 (2% variation)
-                    if (range < 0.02) {
-                        stableCount++;
-                    }
+                let diff = 0;
+                for (const key in lastMeasurement) {
+                    diff += Math.abs(lastMeasurement[key] - secondLast[key]);
                 }
                 
-                // Calculate stability as percentage of stable measurements
-                const stability = (stableCount / keys.length) * 100;
+                // Convert difference to stability percentage
+                const stability = Math.max(0, 100 - (diff * 100));
                 return Math.round(stability);
             }
             
@@ -524,15 +498,15 @@
             }
             
             async generateKey() {
-                if (this.isProcessing || this.measurementHistory.length < 10) {
-                    this.showStatus('Need more stable measurements before generating key (keep face still)', 'warning');
+                if (this.isProcessing || this.measurementHistory.length < 5) {
+                    this.showStatus('Hold still for a moment...', 'warning');
                     return;
                 }
                 
                 // Check if measurements are stable enough
                 const consistency = this.calculateConsistency();
-                if (consistency < 80) {
-                    this.showStatus(`Measurements not stable enough (${consistency}% stability). Keep face still and centered.`, 'warning');
+                if (consistency < 70) {
+                    this.showStatus('Almost there! Keep your face still...', 'warning');
                     return;
                 }
                 
@@ -564,25 +538,19 @@
             }
             
             getStableMeasurements() {
-                if (this.measurementHistory.length < 5) return null;
+                if (this.measurementHistory.length < 3) return null;
                 
-                // Use median instead of average for more stability
-                const recent = this.measurementHistory.slice(-10);
-                const keys = Object.keys(recent[0]);
-                const stabilized = {};
+                // Just use the most recent stable measurement
+                const recent = this.measurementHistory.slice(-3);
                 
-                for (const key of keys) {
-                    const values = recent.map(m => m[key]).sort((a, b) => a - b);
-                    // Use median for stability
-                    const median = values.length % 2 === 0 
-                        ? (values[values.length / 2 - 1] + values[values.length / 2]) / 2
-                        : values[Math.floor(values.length / 2)];
-                    
-                    // Heavy quantization for determinism (2 decimal places)
-                    stabilized[key] = Math.round(median * 100) / 100;
+                // Simple average of the last 3 measurements
+                const averaged = {};
+                for (const key in recent[0]) {
+                    const sum = recent.reduce((acc, m) => acc + m[key], 0);
+                    averaged[key] = Math.round((sum / recent.length) * 10) / 10;
                 }
                 
-                return stabilized;
+                return averaged;
             }
             
             createDeterministicSeed(measurements) {
