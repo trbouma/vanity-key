@@ -504,11 +504,11 @@
             drawOverlay(landmarks) {
                 this.overlayCtx.clearRect(0, 0, this.overlay.width, this.overlay.height);
                 
-                // Draw face guide oval
+                // Draw face guide oval - smaller so face needs to fill it
                 const centerX = this.overlay.width / 2;
                 const centerY = this.overlay.height / 2;
-                const ovalWidth = this.overlay.width * 0.35;
-                const ovalHeight = this.overlay.height * 0.5;
+                const ovalWidth = this.overlay.width * 0.22;  // Smaller width - face should fill
+                const ovalHeight = this.overlay.height * 0.32; // Smaller height - face should fill
                 
                 // Check if face is properly centered
                 let faceAligned = false;
@@ -525,11 +525,12 @@
                     const faceWidth = faceRight - faceLeft;
                     const faceHeight = faceBottom - faceTop;
                     
-                    // Check alignment
-                    const xAligned = Math.abs(faceCenterX - centerX) < ovalWidth * 0.2;
-                    const yAligned = Math.abs(faceCenterY - centerY) < ovalHeight * 0.2;
-                    const sizeAligned = faceWidth > ovalWidth * 0.6 && faceWidth < ovalWidth * 1.2 &&
-                                       faceHeight > ovalHeight * 0.6 && faceHeight < ovalHeight * 1.2;
+                    // Check alignment - face should fill the oval
+                    const xAligned = Math.abs(faceCenterX - centerX) < ovalWidth * 0.15;
+                    const yAligned = Math.abs(faceCenterY - centerY) < ovalHeight * 0.15;
+                    // Face should be at least 90% of oval size but not more than 130%
+                    const sizeAligned = faceWidth > ovalWidth * 0.9 && faceWidth < ovalWidth * 1.3 &&
+                                       faceHeight > ovalHeight * 0.9 && faceHeight < ovalHeight * 1.3;
                     faceAligned = xAligned && yAligned && sizeAligned;
                 }
                 
@@ -546,7 +547,20 @@
                 this.overlayCtx.fillStyle = faceAligned ? '#22c55e' : '#bb86fc';
                 this.overlayCtx.font = '16px sans-serif';
                 this.overlayCtx.textAlign = 'center';
-                const message = faceAligned ? 'Face aligned ✓' : 'Position face in oval';
+                let message = 'Move closer - fill the oval';
+                if (landmarks && landmarks.length > 0) {
+                    const xCoords = landmarks.map(p => p.x);
+                    const faceWidth = Math.max(...xCoords) - Math.min(...xCoords);
+                    if (faceWidth < ovalWidth * 0.9) {
+                        message = 'Move closer';
+                    } else if (faceWidth > ovalWidth * 1.3) {
+                        message = 'Move back';
+                    } else if (!faceAligned) {
+                        message = 'Center your face';
+                    } else {
+                        message = 'Perfect! Hold still ✓';
+                    }
+                }
                 this.overlayCtx.fillText(message, centerX, centerY - ovalHeight - 20);
                 
                 // Draw landmark points if face is aligned
