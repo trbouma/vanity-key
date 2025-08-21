@@ -259,6 +259,7 @@
                 this.modelsLoaded = false;
                 this.measurementHistory = [];
                 this.maxHistorySize = 10;
+                this.faceAligned = false;
                 
                 this.initializeElements();
                 this.loadModels();
@@ -366,10 +367,24 @@
                         landmarks = this.detectFaceFallback();
                     }
                     
-                    if (landmarks && landmarks.length > 0) {
+                    // Always draw overlay (shows guide even without face)
+                    const faceAligned = this.drawOverlay(landmarks);
+                    this.faceAligned = faceAligned;
+                    
+                    // Update button state based on alignment
+                    const captureBtn = document.getElementById('captureKey');
+                    if (this.faceAligned && this.measurementHistory.length >= 3) {
+                        captureBtn.style.background = '#22c55e';
+                        captureBtn.textContent = 'Generate Key ✓';
+                    } else {
+                        captureBtn.style.background = '#bb86fc';
+                        captureBtn.textContent = 'Generate Key';
+                    }
+                    
+                    // Only update measurements when face is properly aligned
+                    if (landmarks && landmarks.length > 0 && faceAligned) {
                         const measurements = this.extractStableMeasurements(landmarks);
                         this.updateMeasurementHistory(measurements);
-                        this.drawOverlay(landmarks);
                     }
                 } catch (error) {
                     console.log('Detection error:', error.message);
@@ -488,16 +503,71 @@
             
             drawOverlay(landmarks) {
                 this.overlayCtx.clearRect(0, 0, this.overlay.width, this.overlay.height);
-                this.overlayCtx.fillStyle = '#bb86fc';
                 
-                landmarks.forEach(point => {
-                    this.overlayCtx.beginPath();
-                    this.overlayCtx.arc(point.x, point.y, 3, 0, 2 * Math.PI);
-                    this.overlayCtx.fill();
-                });
+                // Draw face guide oval
+                const centerX = this.overlay.width / 2;
+                const centerY = this.overlay.height / 2;
+                const ovalWidth = this.overlay.width * 0.35;
+                const ovalHeight = this.overlay.height * 0.5;
+                
+                // Check if face is properly centered
+                let faceAligned = false;
+                if (landmarks && landmarks.length > 0) {
+                    // Get face bounds
+                    const xCoords = landmarks.map(p => p.x);
+                    const yCoords = landmarks.map(p => p.y);
+                    const faceLeft = Math.min(...xCoords);
+                    const faceRight = Math.max(...xCoords);
+                    const faceTop = Math.min(...yCoords);
+                    const faceBottom = Math.max(...yCoords);
+                    const faceCenterX = (faceLeft + faceRight) / 2;
+                    const faceCenterY = (faceTop + faceBottom) / 2;
+                    const faceWidth = faceRight - faceLeft;
+                    const faceHeight = faceBottom - faceTop;
+                    
+                    // Check alignment
+                    const xAligned = Math.abs(faceCenterX - centerX) < ovalWidth * 0.2;
+                    const yAligned = Math.abs(faceCenterY - centerY) < ovalHeight * 0.2;
+                    const sizeAligned = faceWidth > ovalWidth * 0.6 && faceWidth < ovalWidth * 1.2 &&
+                                       faceHeight > ovalHeight * 0.6 && faceHeight < ovalHeight * 1.2;
+                    faceAligned = xAligned && yAligned && sizeAligned;
+                }
+                
+                // Draw oval guide with color based on alignment
+                this.overlayCtx.strokeStyle = faceAligned ? '#22c55e' : '#bb86fc';
+                this.overlayCtx.lineWidth = 3;
+                this.overlayCtx.setLineDash([10, 5]);
+                this.overlayCtx.beginPath();
+                this.overlayCtx.ellipse(centerX, centerY, ovalWidth, ovalHeight, 0, 0, 2 * Math.PI);
+                this.overlayCtx.stroke();
+                this.overlayCtx.setLineDash([]);
+                
+                // Draw helper text
+                this.overlayCtx.fillStyle = faceAligned ? '#22c55e' : '#bb86fc';
+                this.overlayCtx.font = '16px sans-serif';
+                this.overlayCtx.textAlign = 'center';
+                const message = faceAligned ? 'Face aligned ✓' : 'Position face in oval';
+                this.overlayCtx.fillText(message, centerX, centerY - ovalHeight - 20);
+                
+                // Draw landmark points if face is aligned
+                if (landmarks && faceAligned) {
+                    this.overlayCtx.fillStyle = '#22c55e';
+                    landmarks.forEach(point => {
+                        this.overlayCtx.beginPath();
+                        this.overlayCtx.arc(point.x, point.y, 2, 0, 2 * Math.PI);
+                        this.overlayCtx.fill();
+                    });
+                }
+                
+                return faceAligned;
             }
             
             async generateKey() {
+                if (!this.faceAligned) {
+                    this.showStatus('Please align your face in the oval guide', 'warning');
+                    return;
+                }
+                
                 if (this.isProcessing || this.measurementHistory.length < 5) {
                     this.showStatus('Hold still for a moment...', 'warning');
                     return;
